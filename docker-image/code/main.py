@@ -99,7 +99,7 @@ class DiscordClient(discord.Client):
         embed = discord.Embed(title=f"New LTT Video - {video['title']}", url=video['url'])
         embed.set_image(url=video['image'])
         await channel.send(embed=embed)
-        self.history[video['id']]
+        self.history[video['id']] = True
         await sleep(5)
 
 if __name__ == "__main__":

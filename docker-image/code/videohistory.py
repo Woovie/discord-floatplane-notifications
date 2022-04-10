@@ -13,13 +13,10 @@ class VideoHistoryLocal:
     def __getitem__(self, videoid: str):
         return videoid in self.history
 
-    def __setitem__(self, videoid: str):
+    def __setitem__(self, videoid: str, _: bool):
         """
         Altered from typical setitem definitions. Using only one variable instead of two.
         """
-        # pylint: disable=unexpected-special-method-signature
-        # I am using this outside of standards, by only taking a video ID and appending it instead
-        # of setting a value.
         self.history.append(videoid)
         self.save()
 
