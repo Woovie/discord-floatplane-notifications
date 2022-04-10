@@ -1,82 +1,106 @@
+"""
+Not a module :^)
+"""
 from asyncio import sleep
-import configparser, json, requests, discord
+from json import loads as jsonloads
+import requests
+import discord
+import configloader
+from videohistory import VideoHistoryLocal
 
 def main():
-    instance.process_video_results()
-    discordclient = DiscordClient()
-    discordclient.run(config['discord']['token'])
+    """
+    Program instantiation via CLI
+    """
+    discord_client = DiscordClient()
+    try:
+        discord_client.config
+    finally:
+        discord_client.run(discord_client.config.discord.token)
 
 
 class APICaller():
+    """
+    Handles API calls to Floatplane API
+    """
     def __init__(self):
         self.videos = []
-        pass
 
-    def process_video_results(self):
-        apiresponse = json.loads(self.check_for_videos())
+    def process_api_results(self, api_endpoint: str, channel_id: str, limit: int, video_url: str):
+        """
+        Instantiates API call method, loads in returned data, parses and reshapes into a format of
+        my own choosing to pass to other methods in the stack
+        """
+        apiresponse = jsonloads(self.check_for_videos(api_endpoint, channel_id, limit))
         for video in apiresponse:
             self.videos.append({
                 "id": video['id'],
                 "title": video['title'],
-                "url": f"{config['floatplane']['videourl']}{video['id']}",
+                "url": f"{video_url}{video['id']}",
                 "image": video['thumbnail']['path']
             })
 
     @staticmethod
-    def check_for_videos():
-        api = f"{config['floatplane']['apiendpoint']}{config['floatplane']['channel']}&limit={config['floatplane']['limit']}"
+    def check_for_videos(api_endpoint: str, channel_id: str, limit: int):
+        """
+        Does a simple GET request to an open API on Floatplane
+        Retreives the last 20 uploaded videos
+        """
+        api = f"{api_endpoint}{channel_id}&limit={limit}"
         result = requests.get(api)
         return result.text
 
-
 class DiscordClient(discord.Client):
-    async def on_ready(self):
-        print(f"Logged in as {self.user}")
-        # Add some form of storage and checking here... JSON file?
+    """
+    Discord wrapper class
+    Adds some new methods, overwrites others
+    """
+
+    def __init__(self):
+        discord.Client.__init__(self)
+        self.config =  configloader.Configuration(
+            configuration_type="ini"
+        )
         self.history = VideoHistoryLocal()
+        # TODO Add an environment detection (Azure, AWS) logic to set which class to use?
+        self.api = APICaller()
         self.history.read()
+
+    async def on_ready(self):
+        """
+        Starts once the rest of the discord.Client has finished instantiation
+        """
+        await self.get_video_data()
         await self.process_videos()
         await self.close()
-    
+
+    async def get_video_data(self):
+        """
+        Contains a single method call to APICaller.process_api_results that explodes to many lines
+        """
+        self.api.process_api_results(
+            api_endpoint=self.config.floatplane.api_endpoint,
+            limit=self.config.floatplane.limit,
+            video_url=self.config.floatplane.video_url,
+            channel_id=self.config.floatplane.channel
+        )
+
     async def process_videos(self):
-        if len(self.history) == 0:
-            instance.videos.reverse()# We need to inverse so we get the videos in order of release, so the latest is the latest post
-        for video in instance.videos:
+        """
+        Reads the data from Floatplane API results and posts if the video is new
+        """
+
+        for video in self.api.videos:
             if not self.history[video['id']]:
                 await self.post_video(video)
 
     async def post_video(self, video: dict):# TODO BUILD AN EMBED
-        channel = self.get_channel(int(config['discord']['channelid']))
+        channel = self.get_channel(self.config.discord.channel_id)
         embed = discord.Embed(title=f"New LTT Video - {video['title']}", url=video['url'])
         embed.set_image(url=video['image'])
         await channel.send(embed=embed)
-        self.history[video['id']] = True
+        self.history[video['id']]
         await sleep(5)
-
-
-class VideoHistoryLocal:
-    def __init__(self):
-        self.history = []
-
-    def __getitem__(self, videoid: str):
-        return videoid in self.history
-
-    def __setitem__(self, videoid: str, sent: bool):
-        self.history.append(videoid)
-        self.save()
-
-    def __len__(self):
-        return len(self.history)
-
-    def read(self, filename: str = 'history.json'):
-        with open(filename, 'r') as historydata:
-            self.history = json.load(historydata)
-
-    def save(self, filename: str = 'history.json'):
-        with open(filename, 'w') as historydata:
-            json.dump(self.history, historydata)
-
-instance = APICaller()
 
 if __name__ == "__main__":
     main()
